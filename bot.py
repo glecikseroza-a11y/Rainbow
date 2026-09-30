@@ -105,7 +105,6 @@ class RainbowBot(commands.Bot):
             cursor = conn.cursor()
             cursor.execute("SELECT role_id, preset, hue FROM role_presets")
             rows = cursor.fetchall()
-            conn.close()
         except Exception as e:
             print(f"❌ Помилка читання з бази Turso: {e}")
             return
@@ -113,38 +112,22 @@ class RainbowBot(commands.Bot):
         if not rows:
             return
 
-        # Надійне отримання гільдії (щоб уникнути порожнього кешу)
         guild = self.get_guild(ALLOWED_GUILD_ID)
         if not guild:
-            try:
-                guild = await self.fetch_guild(ALLOWED_GUILD_ID)
-            except Exception as e:
-                print(f"⚠️ Не вдалося отримати сервер через API: {e}")
-                return
+            print(f"⚠️ Сервер з ID {ALLOWED_GUILD_ID} не знайдено серед кешу бота!")
+            return
 
         for row in rows:
             role_id, preset, hue = row[0], row[1], row[2]
             
-            try:
-                role = guild.get_role(role_id)
-                if not role:
-                    role = await guild.fetch_role(role_id)
-            except discord.NotFound:
-                print(f"⚠️ Роль ID {role_id} не знайдена на сервері (можливо, її видалили).")
-                continue
-            except Exception as e:
-                print(f"⚠️ Помилка отримання ролі ID {role_id}: {e}")
+            # Шукаємо роль через get_role з кешу гільдії (intents.all() гарантує її наявність)
+            role = guild.get_role(role_id)
+            if not role:
+                print(f"⚠️ Роль ID {role_id} не знайдена в кеші сервера.")
                 continue
 
-            me = guild.me
-            if not me:
-                try:
-                    me = await guild.fetch_member(self.user.id)
-                except:
-                    pass
-
-            if me and not me.top_role > role:
-                print(f"❌ ПОМИЛКА ІЄРАРХІЇ: Роль бота нижче або на рівні з цільовою роллю ({role.name})!")
+            if not guild.me.top_role > role:
+                print(f"❌ ПОМИЛКА ІЄРАРХІЇ: Роль бота ({guild.me.top_role.name}) нижче або на рівні з цільовою роллю ({role.name})!")
                 continue
 
             color = get_preset_color(preset, hue)
@@ -161,16 +144,15 @@ class RainbowBot(commands.Bot):
 
             new_hue = (hue + 0.02) % 1.0
             try:
-                conn = get_db_connection()
-                cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE role_presets SET hue = ? WHERE role_id = ?",
                     (new_hue, role_id)
                 )
                 conn.commit()
-                conn.close()
             except Exception as e:
                 print(f"Помилка оновлення hue в базі: {e}")
+
+        conn.close()
 
 bot = RainbowBot()
 
@@ -199,6 +181,15 @@ async def slash_set_color(interaction: discord.Interaction, role: discord.Role, 
         return
 
     target_role_id = role.id
+    if target_role_id == interaction.guild_id:
+        found_real_role = discord.utils.get(interaction.guild.roles, name=role.name)
+        if found_real_role and found_real_role.id != interaction.guild_id:
+            target_role_id = found_real_role.id
+            role = found_real_role
+        else:
+            await interaction.response.send_message("❌ Помилка: Не вдалося розпізнати роль. Спробуй обрати іншу роль.", ephemeral=True)
+            return
+
     preset_value = preset.value
 
     try:
@@ -228,6 +219,9 @@ async def slash_remove_role(interaction: discord.Interaction, role: discord.Role
         return
 
     target_role_id = role.id
+    if target_role_id == interaction.guild_id:
+        await interaction.response.send_message("❌ Помилка: Обрана некоректна роль.", ephemeral=True)
+        return
 
     try:
         conn = get_db_connection()
