@@ -8,22 +8,23 @@ import libsql
 TOKEN = os.getenv("DISCORD_TOKEN")
 TURSO_URL = os.getenv("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
-
 INTERVAL = int(os.getenv("INTERVAL", 20))
 
-intents = discord.Intents.default()
-intents.message_content = True
+# Твої персональні обмеження (вказуються у змінних Railway)
+ALLOWED_GUILD_ID = int(os.getenv("GUILD_ID", 0))
+OWNER_ID = int(os.getenv("OWNER_ID", 0))
+
+intents = discord.Intents.all()
 
 # --- ІНІЦІАЛІЗАЦІЯ ХМАРНОЇ БАЗИ ---
 def get_db_connection():
-    # Якщо посилання починається з libsql://, замінюємо на https:// для стабільного HTTP-з'єднання
-        url = TURSO_URL
-        if url.startswith("libsql://"):
-            url = url.replace("libsql://", "https://")
-        elif url.startswith("wss://"):
-            url = url.replace("wss://", "https://")
+    url = TURSO_URL
+    if url.startswith("libsql://"):
+        url = url.replace("libsql://", "https://")
+    elif url.startswith("wss://"):
+        url = url.replace("wss://", "https://")
 
-        return libsql.connect(database=url, auth_token=TURSO_AUTH_TOKEN)
+    return libsql.connect(database=url, auth_token=TURSO_AUTH_TOKEN)
 
 def init_db():
     conn = get_db_connection()
@@ -81,6 +82,10 @@ class RainbowBot(commands.Bot):
     async def on_ready(self):
         print(f'Бот залогінився як {self.user} (ID: {self.user.id})')
         print(f'Інтервал зміни кольорів: {INTERVAL} сек.')
+        if ALLOWED_GUILD_ID:
+            print(f'🔒 Бот прив\'язаний виключно до сервера ID: {ALLOWED_GUILD_ID}')
+        if OWNER_ID:
+            print(f'👑 Власник команд (Owner ID): {OWNER_ID}')
         print('Підключено до Turso через HTTPS. Все готово!')
 
     # --- ФОНОВА ЗАДАЧА ЗМІНИ КОЛЬОРІВ ---
@@ -101,6 +106,10 @@ class RainbowBot(commands.Bot):
             role = None
             guild = None
             for g in self.guilds:
+                # Якщо вказано ALLOWED_GUILD_ID, ігноруємо всі інші сервери
+                if ALLOWED_GUILD_ID and g.id != ALLOWED_GUILD_ID:
+                    continue
+                
                 r = g.get_role(role_id)
                 if r:
                     role = r
@@ -134,11 +143,25 @@ class RainbowBot(commands.Bot):
 
 bot = RainbowBot()
 
+# --- ПЕРЕВІРКА НА ВЛАСНИКА ---
+def is_owner(ctx):
+    if OWNER_ID and ctx.author.id != OWNER_ID:
+        return False
+    return True
+
 # --- КОМАНДИ ---
 
 @bot.command(name="setcolor")
-@commands.has_permissions(administrator=True)
 async def set_color_preset(ctx, role: discord.Role, preset: str):
+    # Перевіряємо, чи це ти викликаєш команду
+    if OWNER_ID and ctx.author.id != OWNER_ID:
+        await ctx.send("❌ У тебе немає прав на використання цієї команди!")
+        return
+
+    # Перевіряємо, чи команда виконується на правильному сервері
+    if ALLOWED_GUILD_ID and ctx.guild.id != ALLOWED_GUILD_ID:
+        return
+
     valid_presets = ['rainbow', 'pastel', 'dark', 'neon', 'green', 'red', 'blue', 'yellow']
     preset = preset.lower()
 
@@ -163,8 +186,14 @@ async def set_color_preset(ctx, role: discord.Role, preset: str):
     await ctx.send(f"✅ Успішно! Роль {role.mention} тепер переливається за шаблоном **{preset}**.")
 
 @bot.command(name="removerole")
-@commands.has_permissions(administrator=True)
 async def remove_role(ctx, role: discord.Role):
+    if OWNER_ID and ctx.author.id != OWNER_ID:
+        await ctx.send("❌ У тебе немає прав на використання цієї команди!")
+        return
+
+    if ALLOWED_GUILD_ID and ctx.guild.id != ALLOWED_GUILD_ID:
+        return
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -179,6 +208,9 @@ async def remove_role(ctx, role: discord.Role):
 
 @bot.command(name="presets")
 async def list_presets(ctx):
+    if ALLOWED_GUILD_ID and ctx.guild.id != ALLOWED_GUILD_ID:
+        return
+
     embed = discord.Embed(
         title="🎨 Доступні шаблони кольорів",
         description="Використовуй команду `!setcolor @Роль <шаблон>`",
