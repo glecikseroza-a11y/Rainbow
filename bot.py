@@ -48,19 +48,15 @@ def init_db():
     """
     Створює таблицю role_presets.
 
-    ВАЖЛИВО:
-    Discord ID зберігаємо як TEXT, а не INTEGER.
-    Discord Snowflake ID може бути більшим за безпечне
-    ціле число JavaScript.
-
-    Якщо стара таблиця має role_id INTEGER,
-    автоматично переносимо її в нову TEXT-таблицю.
+    Discord ID зберігаємо як TEXT, а не INTEGER,
+    щоб уникнути проблем з великими Discord Snowflake ID.
     """
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
+
         # ----------------------------------------------------
         # Перевіряємо, чи існує таблиця
         # ----------------------------------------------------
@@ -75,10 +71,11 @@ def init_db():
         table_exists = cursor.fetchone()
 
         # ----------------------------------------------------
-        # Якщо таблиці немає — створюємо відразу правильну
+        # Якщо таблиці немає
         # ----------------------------------------------------
 
         if not table_exists:
+
             print("🗄️ Таблиці role_presets немає.")
             print("🆕 Створюю нову таблицю з role_id TEXT...")
 
@@ -93,10 +90,11 @@ def init_db():
             conn.commit()
 
             print("✅ Таблицю role_presets створено.")
+
             return
 
         # ----------------------------------------------------
-        # Дивимося тип role_id
+        # Перевіряємо тип role_id
         # ----------------------------------------------------
 
         cursor.execute("""
@@ -108,10 +106,13 @@ def init_db():
         role_id_type = None
 
         for column in columns:
-            # PRAGMA:
-            # cid, name, type, notnull, dflt_value, pk
+
             if column[1] == "role_id":
-                role_id_type = str(column[2]).upper()
+
+                role_id_type = str(
+                    column[2]
+                ).upper()
+
                 break
 
         print(
@@ -120,29 +121,28 @@ def init_db():
         )
 
         # ----------------------------------------------------
-        # Якщо вже TEXT — нічого не робимо
+        # Якщо вже TEXT
         # ----------------------------------------------------
 
         if role_id_type == "TEXT":
+
             print("✅ role_id вже має тип TEXT.")
+
             return
 
         # ----------------------------------------------------
-        # Якщо стара INTEGER-таблиця —
-        # переносимо її в нову TEXT-таблицю
+        # Міграція INTEGER → TEXT
         # ----------------------------------------------------
 
         print()
         print("⚠️ Виявлено старий тип role_id INTEGER.")
         print("🔄 Виконую міграцію INTEGER → TEXT...")
 
-        # Перейменовуємо стару таблицю
         cursor.execute("""
             ALTER TABLE role_presets
             RENAME TO role_presets_old
         """)
 
-        # Створюємо нову правильну таблицю
         cursor.execute("""
             CREATE TABLE role_presets (
                 role_id TEXT PRIMARY KEY,
@@ -151,8 +151,6 @@ def init_db():
             )
         """)
 
-        # Переносимо старі записи.
-        # CAST(... AS TEXT) залишає ID текстом.
         cursor.execute("""
             INSERT INTO role_presets
                 (role_id, preset, hue)
@@ -163,7 +161,6 @@ def init_db():
             FROM role_presets_old
         """)
 
-        # Видаляємо стару таблицю
         cursor.execute("""
             DROP TABLE role_presets_old
         """)
@@ -175,11 +172,17 @@ def init_db():
         print()
 
     except Exception as e:
+
         conn.rollback()
-        print(f"❌ Помилка init_db(): {e}")
+
+        print(
+            f"❌ Помилка init_db(): {e}"
+        )
+
         raise
 
     finally:
+
         conn.close()
 
 
@@ -191,7 +194,10 @@ init_db()
 # КОЛЬОРИ
 # ============================================================
 
-def get_preset_color(preset: str, hue: float) -> discord.Color:
+def get_preset_color(
+    preset: str,
+    hue: float
+) -> discord.Color:
 
     if preset == "pastel":
 
@@ -219,7 +225,9 @@ def get_preset_color(preset: str, hue: float) -> discord.Color:
 
     elif preset == "green":
 
-        green_hue = 0.25 + (hue * 0.2) % 0.2
+        green_hue = (
+            0.25 + (hue * 0.2) % 0.2
+        )
 
         rgb = colorsys.hsv_to_rgb(
             green_hue,
@@ -229,7 +237,9 @@ def get_preset_color(preset: str, hue: float) -> discord.Color:
 
     elif preset == "red":
 
-        red_hue = (0.9 + hue * 0.15) % 1.0
+        red_hue = (
+            0.9 + hue * 0.15
+        ) % 1.0
 
         rgb = colorsys.hsv_to_rgb(
             red_hue,
@@ -239,7 +249,9 @@ def get_preset_color(preset: str, hue: float) -> discord.Color:
 
     elif preset == "blue":
 
-        blue_hue = 0.55 + (hue * 0.25) % 0.25
+        blue_hue = (
+            0.55 + (hue * 0.25) % 0.25
+        )
 
         rgb = colorsys.hsv_to_rgb(
             blue_hue,
@@ -249,7 +261,9 @@ def get_preset_color(preset: str, hue: float) -> discord.Color:
 
     elif preset == "yellow":
 
-        yellow_hue = 0.08 + (hue * 0.1) % 0.1
+        yellow_hue = (
+            0.08 + (hue * 0.1) % 0.1
+        )
 
         rgb = colorsys.hsv_to_rgb(
             yellow_hue,
@@ -372,7 +386,7 @@ class RainbowBot(commands.Bot):
         await self.wait_until_ready()
 
         print()
-        print("🎨 --- Перевірка ролей ---")
+        print("🎨 --- ЗМІНА КОЛЬОРІВ ---")
 
         # ----------------------------------------------------
         # SERVER
@@ -392,9 +406,11 @@ class RainbowBot(commands.Bot):
             return
 
         print(
-            f"🏠 Сервер:\n"
-            f"   Назва: {guild.name}\n"
-            f"   ID: {guild.id}"
+            f"🏠 Сервер: {guild.name}"
+        )
+
+        print(
+            f"🆔 Guild ID: {guild.id}"
         )
 
         # ----------------------------------------------------
@@ -422,6 +438,7 @@ class RainbowBot(commands.Bot):
             )
 
             if conn:
+
                 conn.close()
 
             return
@@ -446,21 +463,30 @@ class RainbowBot(commands.Bot):
 
         for row in rows:
 
-            # В БД ID тепер TEXT.
-            # Для Discord API перетворюємо назад в int.
-
             role_id_text = str(row[0])
-            role_id = int(role_id_text)
+
+            try:
+
+                role_id = int(
+                    role_id_text
+                )
+
+            except ValueError:
+
+                print(
+                    f"❌ Некоректний Role ID у БД: "
+                    f"{role_id_text}"
+                )
+
+                continue
 
             preset = str(row[1])
             hue = float(row[2])
 
             print()
             print(
-                f"🔎 Шукаю роль:\n"
-                f"   Guild ID: {guild.id}\n"
-                f"   Role ID: {role_id_text}\n"
-                f"   Тип ID з БД: {type(row[0]).__name__}\n"
+                f"🔎 Роль:\n"
+                f"   ID: {role_id_text}\n"
                 f"   Preset: {preset}\n"
                 f"   Hue: {round(hue, 3)}"
             )
@@ -493,7 +519,9 @@ class RainbowBot(commands.Bot):
                         DELETE FROM role_presets
                         WHERE role_id = ?
                         """,
-                        (role_id_text,)
+                        (
+                            role_id_text,
+                        )
                     )
 
                     conn.commit()
@@ -516,7 +544,8 @@ class RainbowBot(commands.Bot):
 
                 print(
                     f"❌ Discord API: "
-                    f"бот не має доступу до ролі {role_id_text}."
+                    f"бот не має доступу до ролі "
+                    f"{role_id_text}."
                 )
 
                 continue
@@ -644,9 +673,9 @@ class RainbowBot(commands.Bot):
             except discord.Forbidden:
 
                 print(
-                    f"❌ FORBIDDEN:\n"
-                    f"   Бот бачить роль, "
-                    f"але Discord забороняє її змінювати."
+                    "❌ FORBIDDEN:\n"
+                    "   Бот бачить роль, "
+                    "але Discord забороняє її змінювати."
                 )
 
                 continue
@@ -684,6 +713,11 @@ class RainbowBot(commands.Bot):
 
                 conn.commit()
 
+                print(
+                    f"🌈 Новий Hue: "
+                    f"{round(new_hue, 3)}"
+                )
+
             except Exception as e:
 
                 print(
@@ -695,10 +729,17 @@ class RainbowBot(commands.Bot):
         # CLOSE DB
         # ----------------------------------------------------
 
-        conn.close()
+        if conn:
+
+            conn.close()
 
         print(
-            "🎨 --- Перевірку завершено ---"
+            f"⏳ Наступна зміна через "
+            f"{INTERVAL} секунд."
+        )
+
+        print(
+            "🎨 --- ЗМІНУ ЗАВЕРШЕНО ---"
         )
 
         print()
@@ -779,10 +820,6 @@ async def slash_set_color(
     role: discord.Role,
     preset: app_commands.Choice[str]
 ):
-
-    # --------------------------------------------------------
-    # DIAGNOSTIC LOG
-    # --------------------------------------------------------
 
     print()
     print("📝 --- /setcolor ---")
@@ -886,11 +923,8 @@ async def slash_set_color(
                 return
 
     # --------------------------------------------------------
-    # EXACT ROLE ID
+    # ROLE ID AS TEXT
     # --------------------------------------------------------
-
-    # ВАЖЛИВО:
-    # Discord ID зберігаємо як STRING.
 
     target_role_id = str(role.id)
     preset_value = str(preset.value)
@@ -974,23 +1008,30 @@ async def slash_set_color(
 
         if saved_row:
 
-            saved_role_id = str(saved_row[0])
+            saved_role_id = str(
+                saved_row[0]
+            )
+
             saved_type = saved_row[1]
 
             print(
-                f"   Збережений role_id: {saved_role_id}"
+                f"   Збережений role_id: "
+                f"{saved_role_id}"
             )
 
             print(
-                f"   Тип role_id у БД: {saved_type}"
+                f"   Тип role_id у БД: "
+                f"{saved_type}"
             )
 
             print(
-                f"   Збережений preset: {saved_row[2]}"
+                f"   Збережений preset: "
+                f"{saved_row[2]}"
             )
 
             print(
-                f"   Збережений hue: {saved_row[3]}"
+                f"   Збережений hue: "
+                f"{saved_row[3]}"
             )
 
             if saved_role_id != target_role_id:
@@ -1004,11 +1045,13 @@ async def slash_set_color(
                 )
 
                 print(
-                    f"🚨 Передано: {target_role_id}"
+                    f"🚨 Передано: "
+                    f"{target_role_id}"
                 )
 
                 print(
-                    f"🚨 Отримано: {saved_role_id}"
+                    f"🚨 Отримано: "
+                    f"{saved_role_id}"
                 )
 
             else:
@@ -1020,7 +1063,8 @@ async def slash_set_color(
         else:
 
             print(
-                "🚨 ПОМИЛКА: після запису рядок НЕ ЗНАЙДЕНО!"
+                "🚨 ПОМИЛКА: після запису "
+                "рядок НЕ ЗНАЙДЕНО!"
             )
 
         print(
@@ -1034,6 +1078,7 @@ async def slash_set_color(
         )
 
         if conn:
+
             conn.close()
 
         await interaction.response.send_message(
@@ -1046,6 +1091,7 @@ async def slash_set_color(
     finally:
 
         if conn:
+
             conn.close()
 
     # --------------------------------------------------------
@@ -1139,6 +1185,7 @@ async def slash_remove_role(
     except Exception as e:
 
         if conn:
+
             conn.close()
 
         await interaction.response.send_message(
@@ -1151,6 +1198,7 @@ async def slash_remove_role(
     finally:
 
         if conn:
+
             conn.close()
 
     # --------------------------------------------------------
