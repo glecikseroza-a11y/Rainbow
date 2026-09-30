@@ -190,6 +190,12 @@ async def slash_set_color(interaction: discord.Interaction, role: discord.Role, 
 
     preset_value = preset.value
 
+    # Захист: якщо роль чомусь дорівнює серверу або передався ID сервера
+    role_id = role.id
+    if role_id == interaction.guild_id:
+        await interaction.response.send_message("❌ Помилка: Виберіть конкретну роль, а не сервер!", ephemeral=True)
+        return
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -197,7 +203,7 @@ async def slash_set_color(interaction: discord.Interaction, role: discord.Role, 
             INSERT INTO role_presets (role_id, preset, hue) 
             VALUES (?, ?, 0.0)
             ON CONFLICT(role_id) DO UPDATE SET preset = ?
-        """, (role.id, preset_value, preset_value))
+        """, (role_id, preset_value, preset_value))
         conn.commit()
         conn.close()
     except Exception as e:
