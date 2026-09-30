@@ -86,27 +86,19 @@ class RainbowBot(commands.Bot):
         if not self.color_loop.is_running():
             self.color_loop.start()
 
+    @commands.Cog.listener()
     async def on_ready(self):
         print(f'Бот залогінився як {self.user} (ID: {self.user.id})')
         print(f'Інтервал зміни кольорів: {INTERVAL} сек.')
-        
-        # ДИВИМОСЬ СПИСОК СЕРВЕРІВ У ЛОГАХ
-        print('🌐 Бот зараз підключений до таких серверів:')
-        if self.guilds:
-            for g in self.guilds:
-                print(f'   - Назва: {g.name} | ID: {g.id}')
-        else:
-            print('   ⚠️ Список серверів порожній (кеш ще не завантажився)!')
-
         if ALLOWED_GUILD_ID:
-            print(f'🔒 Очікуваний ALLOWED_GUILD_ID з Railway: {ALLOWED_GUILD_ID}')
-            
+            print(f'🔒 Бот прив\'язаний виключно до сервера ID: {ALLOWED_GUILD_ID}')
+        if OWNER_ID:
+            print(f'👑 Власник команд (Owner ID): {OWNER_ID}')
         print('Підключено до Turso через HTTPS. Slash-команди активовано!')
 
     # --- ФОНОВА ЗАДАЧА ЗМІНИ КОЛЬОРІВ ---
     @tasks.loop(seconds=INTERVAL)
     async def color_loop(self):
-        # Чекаємо, поки бот повністю підключиться і завантажить кеш
         await self.wait_until_ready()
 
         try:
@@ -121,7 +113,6 @@ class RainbowBot(commands.Bot):
         if not rows:
             return
 
-        # Беремо сервер напряму за ID із налаштувань
         guild = self.get_guild(ALLOWED_GUILD_ID)
         if not guild:
             print(f"⚠️ Сервер з ID {ALLOWED_GUILD_ID} не знайдено серед кешу бота!")
@@ -130,9 +121,16 @@ class RainbowBot(commands.Bot):
         for row in rows:
             role_id, preset, hue = row[0], row[1], row[2]
             
-            role = guild.get_role(role_id)
-            if not role:
-                print(f"⚠️ Роль ID {role_id} не знайдена на сервері {guild.name}.")
+            # Шукаємо роль через кеш або напряму через API за допомогою fetch_role
+            try:
+                role = guild.get_role(role_id)
+                if not role:
+                    role = await guild.fetch_role(role_id)
+            except discord.NotFound:
+                print(f"⚠️ Роль ID {role_id} не знайдена на сервері (можливо, її видалили).")
+                continue
+            except Exception as e:
+                print(f"⚠️ Помилка отримання ролі ID {role_id}: {e}")
                 continue
 
             if not guild.me.top_role > role:
@@ -148,7 +146,7 @@ class RainbowBot(commands.Bot):
                 print(f"❌ ПОМИЛКА ДОСТУПУ (Forbidden): Бот не має прав 'Manage Roles' або роль вище його власної для ролі {role.name}.")
                 continue
             except discord.HTTPException as e:
-                print(f"❌ HTTP Помилка при зміні ролі {role.name}: {e}.")
+                print(f"❌ HTTP Помилка при зміні ролі {role.name}: {e}")
                 continue
 
             new_hue = (hue + 0.02) % 1.0
