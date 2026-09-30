@@ -105,7 +105,10 @@ class RainbowBot(commands.Bot):
             cursor.execute("SELECT role_id, preset, hue FROM role_presets")
             rows = cursor.fetchall()
         except Exception as e:
-            print(f"Помилка читання з бази Turso: {e}")
+            print(f"❌ Помилка читання з бази Turso: {e}")
+            return
+
+        if not rows:
             return
 
         for row in rows:
@@ -123,17 +126,28 @@ class RainbowBot(commands.Bot):
                     guild = g
                     break
 
-            if not guild or not role:
+            if not guild:
+                print(f"⚠️ Сервер для ролі ID {role_id} не знайдено серед доступних боту.")
+                continue
+
+            if not role:
+                print(f"⚠️ Роль ID {role_id} не знайдена на сервері {guild.name}.")
                 continue
 
             if not guild.me.top_role > role:
+                print(f"❌ ПОМИЛКА ІЄРАРХІЇ: Роль бота ({guild.me.top_role.name}) нижче або на рівні з цільовою роллю ({role.name})!")
                 continue
 
             color = get_preset_color(preset, hue)
 
             try:
                 await role.edit(color=color)
-            except (discord.Forbidden, discord.HTTPException):
+                print(f"✅ Успішно змінено колір ролі {role.name} на {color} (preset: {preset}, hue: {round(hue, 2)})")
+            except discord.Forbidden:
+                print(f"❌ ПОМИЛКА ДОСТУПУ (Forbidden): Бот не має прав 'Manage Roles' або роль вище його власної для ролі {role.name}.")
+                continue
+            except discord.HTTPException as e:
+                print(f"❌ HTTP Помилка при зміні ролі {role.name}: {e}")
                 continue
 
             new_hue = (hue + 0.02) % 1.0
@@ -143,8 +157,8 @@ class RainbowBot(commands.Bot):
                     (new_hue, role_id)
                 )
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Помилка оновлення hue в базі: {e}")
 
         conn.close()
 
