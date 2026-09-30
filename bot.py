@@ -100,6 +100,18 @@ class RainbowBot(commands.Bot):
     async def color_loop(self):
         await self.wait_until_ready()
 
+        guild = self.get_guild(ALLOWED_GUILD_ID)
+        if not guild:
+            try:
+                guild = await self.fetch_guild(ALLOWED_GUILD_ID)
+            except Exception as e:
+                print(f"⚠️ Не вдалося отримати сервер через API: {e}")
+                return
+
+        # Чекаємо, поки кеш ролей завантажиться, щоб не тригерити помилки на старті
+        if len(guild.roles) <= 1:
+            return
+
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -112,15 +124,10 @@ class RainbowBot(commands.Bot):
         if not rows:
             return
 
-        guild = self.get_guild(ALLOWED_GUILD_ID)
-        if not guild:
-            print(f"⚠️ Сервер з ID {ALLOWED_GUILD_ID} не знайдено серед кешу бота!")
-            return
-
         for row in rows:
             role_id, preset, hue = row[0], row[1], row[2]
             
-            # Шукаємо роль через get_role з кешу гільдії (intents.all() гарантує її наявність)
+            # Шукаємо роль через get_role з кешу гільдії
             role = guild.get_role(role_id)
             if not role:
                 print(f"⚠️ Роль ID {role_id} не знайдена в кеші сервера.")
