@@ -176,7 +176,7 @@ class RainbowBot(commands.Bot):
         print()
         print("🎨 --- Перевірка ролей ---")
         # ----------------------------------------------------
-        # Отримуємо сервер
+        # SERVER
         # ----------------------------------------------------
         guild = self.get_guild(
             ALLOWED_GUILD_ID
@@ -193,7 +193,7 @@ class RainbowBot(commands.Bot):
             f"   ID: {guild.id}"
         )
         # ----------------------------------------------------
-        # Читаємо Turso
+        # TURSO
         # ----------------------------------------------------
         conn = None
         try:
@@ -221,7 +221,7 @@ class RainbowBot(commands.Bot):
             f"📋 У базі знайдено ролей: {len(rows)}"
         )
         # ----------------------------------------------------
-        # Перебираємо ролі
+        # ROLES
         # ----------------------------------------------------
         for row in rows:
             role_id = int(row[0])
@@ -236,11 +236,7 @@ class RainbowBot(commands.Bot):
                 f"   Hue: {round(hue, 3)}"
             )
             # ------------------------------------------------
-            # ВАЖЛИВО:
-            # Прямий запит конкретної ролі до Discord API.
-            #
-            # Тут НЕ використовується guild.get_role()
-            # і НЕ використовується список кешованих ролей.
+            # DISCORD API
             # ------------------------------------------------
             try:
                 role = await guild.fetch_role(
@@ -252,10 +248,26 @@ class RainbowBot(commands.Bot):
                     f"роль {role_id} НЕ ЗНАЙДЕНА."
                 )
                 print(
-                    f"   Перевір:\n"
-                    f"   Guild ID = {guild.id}\n"
-                    f"   Role ID = {role_id}"
+                    "🗑️ Видаляю старий ID з Turso..."
                 )
+                try:
+                    cursor.execute(
+                        """
+                        DELETE FROM role_presets
+                        WHERE role_id = ?
+                        """,
+                        (role_id,)
+                    )
+                    conn.commit()
+                    print(
+                        f"✅ Старий ID {role_id} "
+                        f"видалено з Turso."
+                    )
+                except Exception as e:
+                    print(
+                        f"❌ Не вдалося видалити "
+                        f"старий ID: {e}"
+                    )
                 continue
             except discord.Forbidden:
                 print(
@@ -276,7 +288,7 @@ class RainbowBot(commands.Bot):
                 )
                 continue
             # ------------------------------------------------
-            # РОЛЬ ЗНАЙДЕНА
+            # ROLE FOUND
             # ------------------------------------------------
             print(
                 f"✅ РОЛЬ ЗНАЙДЕНА:\n"
@@ -286,7 +298,7 @@ class RainbowBot(commands.Bot):
                 f"   Managed: {role.managed}"
             )
             # ------------------------------------------------
-            # Member бота
+            # BOT MEMBER
             # ------------------------------------------------
             bot_member = guild.me
             if not bot_member:
@@ -301,7 +313,7 @@ class RainbowBot(commands.Bot):
                     )
                     continue
             # ------------------------------------------------
-            # Перевірка Managed Role
+            # MANAGED ROLE
             # ------------------------------------------------
             if role.managed:
                 print(
@@ -311,7 +323,7 @@ class RainbowBot(commands.Bot):
                 )
                 continue
             # ------------------------------------------------
-            # Перевірка ієрархії
+            # HIERARCHY
             # ------------------------------------------------
             print(
                 f"📊 Ієрархія:\n"
@@ -331,14 +343,14 @@ class RainbowBot(commands.Bot):
                 )
                 continue
             # ------------------------------------------------
-            # Генеруємо колір
+            # COLOR
             # ------------------------------------------------
             color = get_preset_color(
                 preset,
                 hue
             )
             # ------------------------------------------------
-            # Змінюємо колір
+            # EDIT ROLE
             # ------------------------------------------------
             try:
                 await role.edit(
@@ -366,7 +378,7 @@ class RainbowBot(commands.Bot):
                 )
                 continue
             # ------------------------------------------------
-            # Новий hue
+            # NEW HUE
             # ------------------------------------------------
             new_hue = (
                 hue + 0.02
@@ -390,13 +402,15 @@ class RainbowBot(commands.Bot):
                     f"для {role_id}: {e}"
                 )
         # ----------------------------------------------------
-        # Закриваємо БД
+        # CLOSE DB
         # ----------------------------------------------------
         conn.close()
-        print("🎨 --- Перевірку завершено ---")
+        print(
+            "🎨 --- Перевірку завершено ---"
+        )
         print()
 # ============================================================
-# СТВОРЕННЯ БОТА
+# BOT INSTANCE
 # ============================================================
 bot = RainbowBot()
 # ============================================================
@@ -456,7 +470,7 @@ async def slash_set_color(
     preset: app_commands.Choice[str]
 ):
     # --------------------------------------------------------
-    # Логи для діагностики
+    # DIAGNOSTIC LOG
     # --------------------------------------------------------
     print()
     print("📝 --- /setcolor ---")
@@ -475,7 +489,8 @@ async def slash_set_color(
         f"🎭 Role:\n"
         f"   Name: {role.name}\n"
         f"   ID: {role.id}\n"
-        f"   Type: {type(role.id)}"
+        f"   Type: {type(role.id)}\n"
+        f"   String: {str(role.id)}"
     )
     print(
         f"🎨 Preset: {preset.value}"
@@ -502,7 +517,7 @@ async def slash_set_color(
         )
         return
     # --------------------------------------------------------
-    # Перевіряємо бота та ієрархію
+    # BOT / HIERARCHY
     # --------------------------------------------------------
     if interaction.guild:
         bot_member = interaction.guild.me
@@ -531,10 +546,25 @@ async def slash_set_color(
                 )
                 return
     # --------------------------------------------------------
-    # Зберігаємо
+    # EXACT ROLE ID
     # --------------------------------------------------------
-    target_role_id = role.id
-    preset_value = preset.value
+    target_role_id = int(role.id)
+    preset_value = str(preset.value)
+    print()
+    print("💾 --- ПІДГОТОВКА ЗАПИСУ В TURSO ---")
+    print(
+        f"   target_role_id = {target_role_id}"
+    )
+    print(
+        f"   type = {type(target_role_id)}"
+    )
+    print(
+        f"   preset = {preset_value}"
+    )
+    # --------------------------------------------------------
+    # SAVE
+    # --------------------------------------------------------
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -556,25 +586,80 @@ async def slash_set_color(
             )
         )
         conn.commit()
-        conn.close()
+        print(
+            "✅ SQL INSERT/UPDATE виконано."
+        )
+        # ----------------------------------------------------
+        # READ BACK
+        # ----------------------------------------------------
+        cursor.execute(
+            """
+            SELECT role_id, preset, hue
+            FROM role_presets
+            WHERE role_id = ?
+            """,
+            (
+                target_role_id,
+            )
+        )
+        saved_row = cursor.fetchone()
+        print()
+        print("🔍 --- ПЕРЕВІРКА TURSO ПІСЛЯ ЗАПИСУ ---")
+        print(
+            f"   Передано role_id: {target_role_id}"
+        )
+        print(
+            f"   Отримано з БД: {saved_row}"
+        )
+        if saved_row:
+            print(
+                f"   Збережений role_id: {saved_row[0]}"
+            )
+            print(
+                f"   Збережений preset: {saved_row[1]}"
+            )
+            print(
+                f"   Збережений hue: {saved_row[2]}"
+            )
+            if int(saved_row[0]) != target_role_id:
+                print(
+                    "🚨 УВАГА! ID ЗМІНИВСЯ ПІД ЧАС ЗАПИСУ!"
+                )
+            else:
+                print(
+                    "✅ ID У TURSO ПОВНІСТЮ СПІВПАДАЄ."
+                )
+        else:
+            print(
+                "🚨 ПОМИЛКА: після запису рядок НЕ ЗНАЙДЕНО!"
+            )
+        print(
+            "🔍 --- КІНЕЦЬ ПЕРЕВІРКИ TURSO ---"
+        )
     except Exception as e:
         print(
             f"❌ Turso error: {e}"
         )
+        if conn:
+            conn.close()
         await interaction.response.send_message(
             f"❌ Помилка бази даних:\n```{e}```",
             ephemeral=True
         )
         return
+    finally:
+        if conn:
+            conn.close()
     # --------------------------------------------------------
-    # Відповідь
+    # RESPONSE
     # --------------------------------------------------------
     await interaction.response.send_message(
         f"✅ Успішно!\n\n"
         f"Роль {role.mention} тепер переливається "
         f"за шаблоном **{preset.name}**.\n\n"
-        f"🆔 Role ID: `{role.id}`"
+        f"🆔 Role ID: `{target_role_id}`"
     )
+    print()
     print("📝 --- /setcolor завершено ---")
     print()
 # ============================================================
@@ -607,10 +692,15 @@ async def slash_remove_role(
         ALLOWED_GUILD_ID
         and interaction.guild_id != ALLOWED_GUILD_ID
     ):
+        await interaction.response.send_message(
+            "❌ Ця команда недоступна на цьому сервері.",
+            ephemeral=True
+        )
         return
     # --------------------------------------------------------
-    # Видаляємо
+    # DELETE
     # --------------------------------------------------------
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -620,20 +710,24 @@ async def slash_remove_role(
             WHERE role_id = ?
             """,
             (
-                role.id,
+                int(role.id),
             )
         )
         conn.commit()
         deleted = cursor.rowcount
-        conn.close()
     except Exception as e:
+        if conn:
+            conn.close()
         await interaction.response.send_message(
             f"❌ Помилка:\n```{e}```",
             ephemeral=True
         )
         return
+    finally:
+        if conn:
+            conn.close()
     # --------------------------------------------------------
-    # Відповідь
+    # RESPONSE
     # --------------------------------------------------------
     if deleted:
         await interaction.response.send_message(
@@ -661,6 +755,10 @@ async def slash_presets(
         ALLOWED_GUILD_ID
         and interaction.guild_id != ALLOWED_GUILD_ID
     ):
+        await interaction.response.send_message(
+            "❌ Ця команда недоступна на цьому сервері.",
+            ephemeral=True
+        )
         return
     embed = discord.Embed(
         title="🎨 Інформаційна панель шаблонів кольорів",
@@ -761,5 +859,7 @@ if __name__ == "__main__":
             "❌ Не знайдено TURSO_AUTH_TOKEN!"
         )
         exit(1)
-    print("🚀 Запуск Rainbow Bot...")
+    print(
+        "🚀 Запуск Rainbow Bot..."
+    )
     bot.run(TOKEN)
