@@ -1,5 +1,6 @@
 import os
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import colorsys
 import libsql
@@ -10,7 +11,6 @@ TURSO_URL = os.getenv("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 INTERVAL = int(os.getenv("INTERVAL", 20))
 
-# Твої персональні обмеження (вказуються у змінних Railway)
 ALLOWED_GUILD_ID = int(os.getenv("GUILD_ID", 0))
 OWNER_ID = int(os.getenv("OWNER_ID", 0))
 
@@ -41,7 +41,7 @@ def init_db():
 
 init_db()
 
-# --- ФУНКЦІЇ ГЕНЕРАЦІЇ КОЛЬОРІВ ЗА ШАБЛОНАМИ ---
+# --- ФУНКЦІЇ ГЕНЕРАЦІЇ КОЛЬОРІВ ---
 def get_preset_color(preset: str, hue: float) -> discord.Color:
     if preset == 'pastel':
         rgb = colorsys.hsv_to_rgb(hue, 0.4, 1.0)
@@ -75,6 +75,14 @@ class RainbowBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # Синхронізуємо слеш-команди з Discord
+        if ALLOWED_GUILD_ID:
+            guild = discord.Object(id=ALLOWED_GUILD_ID)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+        else:
+            await self.tree.sync()
+            
         if not self.color_loop.is_running():
             self.color_loop.start()
 
@@ -86,7 +94,7 @@ class RainbowBot(commands.Bot):
             print(f'🔒 Бот прив\'язаний виключно до сервера ID: {ALLOWED_GUILD_ID}')
         if OWNER_ID:
             print(f'👑 Власник команд (Owner ID): {OWNER_ID}')
-        print('Підключено до Turso через HTTPS. Все готово!')
+        print('Підключено до Turso через HTTPS. Slash-команди активовано!')
 
     # --- ФОНОВА ЗАДАЧА ЗМІНИ КОЛЬОРІВ ---
     @tasks.loop(seconds=INTERVAL)
@@ -106,7 +114,6 @@ class RainbowBot(commands.Bot):
             role = None
             guild = None
             for g in self.guilds:
-                # Якщо вказано ALLOWED_GUILD_ID, ігноруємо всі інші сервери
                 if ALLOWED_GUILD_ID and g.id != ALLOWED_GUILD_ID:
                     continue
                 
@@ -143,31 +150,32 @@ class RainbowBot(commands.Bot):
 
 bot = RainbowBot()
 
-# --- ПЕРЕВІРКА НА ВЛАСНИКА ---
-def is_owner(ctx):
-    if OWNER_ID and ctx.author.id != OWNER_ID:
-        return False
-    return True
+# Доступні шаблони для випадаючого списку у Slash-командах
+PRESET_CHOICES = [
+    app_commands.Choice(name="🌈 Rainbow (Класична веселка)", value="rainbow"),
+    app_commands.Choice(name="🌸 Pastel (М'які пастельні)", value="pastel"),
+    app_commands.Choice(name="🌑 Dark (Темні приглушені)", value="dark"),
+    app_commands.Choice(name="⚡ Neon (Яскраві кислотні)", value="neon"),
+    app_commands.Choice(name="🟢 Green (Зелені / Смарагдові)", value="green"),
+    app_commands.Choice(name="🔴 Red (Червоні / Рожеві)", value="red"),
+    app_commands.Choice(name="🔵 Blue (Сині / Фіолетові)", value="blue"),
+    app_commands.Choice(name="🟡 Yellow (Жовті / Помаранчеві)", value="yellow"),
+]
 
-# --- КОМАНДИ ---
+# --- SLASH-КОМАНДИ ---
 
-@bot.command(name="setcolor")
-async def set_color_preset(ctx, role: discord.Role, preset: str):
-    # Перевіряємо, чи це ти викликаєш команду
-    if OWNER_ID and ctx.author.id != OWNER_ID:
-        await ctx.send("❌ У тебе немає прав на використання цієї команди!")
+@bot.tree.command(name="setcolor", description="Встановити райдужний перелив для ролі")
+@app_commands.choices(preset=PRESET_CHOICES)
+@app_commands.describe(role="Роль, якій потрібно змінити колір", preset="Обери стиль переливу зі списку")
+async def slash_set_color(interaction: discord.Interaction, role: discord.Role, preset: app_commands.Choice[str]):
+    if OWNER_ID and interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("❌ У тебе немає прав на використання цієї команди!", ephemeral=True)
         return
 
-    # Перевіряємо, чи команда виконується на правильному сервері
-    if ALLOWED_GUILD_ID and ctx.guild.id != ALLOWED_GUILD_ID:
+    if ALLOWED_GUILD_ID and interaction.guild_id != ALLOWED_GUILD_ID:
         return
 
-    valid_presets = ['rainbow', 'pastel', 'dark', 'neon', 'green', 'red', 'blue', 'yellow']
-    preset = preset.lower()
-
-    if preset not in valid_presets:
-        await ctx.send(f"❌ Невідомий шаблон! Доступні варіанти: `{', '.join(valid_presets)}`")
-        return
+    preset_value = preset.value
 
     try:
         conn = get_db_connection()
@@ -176,22 +184,23 @@ async def set_color_preset(ctx, role: discord.Role, preset: str):
             INSERT INTO role_presets (role_id, preset, hue) 
             VALUES (?, ?, 0.0)
             ON CONFLICT(role_id) DO UPDATE SET preset = ?
-        """, (role.id, preset, preset))
+        """, (role.id, preset_value, preset_value))
         conn.commit()
         conn.close()
     except Exception as e:
-        await ctx.send(f"❌ Помилка бази даних: {e}")
+        await interaction.response.send_message(f"❌ Помилка бази даних: {e}", ephemeral=True)
         return
 
-    await ctx.send(f"✅ Успішно! Роль {role.mention} тепер переливається за шаблоном **{preset}**.")
+    await interaction.response.send_message(f"✅ Успішно! Роль {role.mention} тепер переливається за шаблоном **{preset.name}**.")
 
-@bot.command(name="removerole")
-async def remove_role(ctx, role: discord.Role):
-    if OWNER_ID and ctx.author.id != OWNER_ID:
-        await ctx.send("❌ У тебе немає прав на використання цієї команди!")
+@bot.tree.command(name="removerole", description="Видалити роль із системи переливу кольорів")
+@app_commands.describe(role="Роль, яку потрібно прибрати з переливу")
+async def slash_remove_role(interaction: discord.Interaction, role: discord.Role):
+    if OWNER_ID and interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("❌ У тебе немає прав на використання цієї команди!", ephemeral=True)
         return
 
-    if ALLOWED_GUILD_ID and ctx.guild.id != ALLOWED_GUILD_ID:
+    if ALLOWED_GUILD_ID and interaction.guild_id != ALLOWED_GUILD_ID:
         return
 
     try:
@@ -201,31 +210,33 @@ async def remove_role(ctx, role: discord.Role):
         conn.commit()
         conn.close()
     except Exception as e:
-        await ctx.send(f"❌ Помилка: {e}")
+        await interaction.response.send_message(f"❌ Помилка: {e}", ephemeral=True)
         return
 
-    await ctx.send(f"🗑️ Роль {role.mention} видалена з бази кольорів.")
+    await interaction.response.send_message(f"🗑️ Роль {role.mention} видалена з бази кольорів.")
 
-@bot.command(name="presets")
-async def list_presets(ctx):
-    if ALLOWED_GUILD_ID and ctx.guild.id != ALLOWED_GUILD_ID:
+@bot.tree.command(name="presets", description="Показати інформаційну панель усіх доступних шаблонів кольорів")
+async def slash_presets(interaction: discord.Interaction):
+    if ALLOWED_GUILD_ID and interaction.guild_id != ALLOWED_GUILD_ID:
         return
 
     embed = discord.Embed(
-        title="🎨 Доступні шаблони кольорів",
-        description="Використовуй команду `!setcolor @Роль <шаблон>`",
-        color=discord.Color.blurple()
+        title="🎨 Інформаційна панель шаблонів кольорів",
+        description="Коли ти вводиш команду `/setcolor`, Discord сам покаже тобі зручний випадаючий список із цими варіантами:",
+        color=discord.Color.from_rgb(114, 137, 218)
     )
-    embed.add_field(name="🌈 rainbow", value="Класична яскрава веселка", inline=False)
-    embed.add_field(name="🌸 pastel", value="М'які пастельні кольори", inline=False)
-    embed.add_field(name="🌑 dark", value="Глибокі приглушені темні відтінки", inline=False)
-    embed.add_field(name="⚡ neon", value="Яскраві кислотні кольори", inline=False)
-    embed.add_field(name="🟢 green", value="Зелені та смарагдові тони", inline=False)
-    embed.add_field(name="🔴 red", value="Червоні та рожеві тони", inline=False)
-    embed.add_field(name="🔵 blue", value="Сині та фіолетові тони", inline=False)
-    embed.add_field(name="🟡 yellow", value="Жовті та помаранчеві тони", inline=False)
+    embed.add_field(name="🌈 Rainbow", value="Класична яскрава повноспектральна веселка", inline=False)
+    embed.add_field(name="🌸 Pastel", value="Ніжні та м'які пастельні відтінки", inline=False)
+    embed.add_field(name="🌑 Dark", value="Глибокі, приглушені та темні тони", inline=False)
+    embed.add_field(name="⚡ Neon", value="Кислотні, максимальні випалюючі очі кольори", inline=False)
+    embed.add_field(name="🟢 Green", value="Діапазон від смарагдового до яскраво-зеленого", inline=False)
+    embed.add_field(name="🔴 Red", value="Червоні, бордові та рожеві переливи", inline=False)
+    embed.add_field(name="🔵 Blue", value="Глибокий синій, ультрамарин та фіолетовий", inline=False)
+    embed.add_field(name="🟡 Yellow", value="Теплі жовті та насичені помаранчеві відтінки", inline=False)
     
-    await ctx.send(embed=embed)
+    embed.set_footer(text="Використовуй /setcolor @Роль, щоб призначити стиль!")
+    
+    await interaction.response.send_message(embed=embed)
 
 if __name__ == "__main__":
     if not TOKEN:
