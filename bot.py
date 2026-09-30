@@ -75,7 +75,6 @@ class RainbowBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Синхронізуємо слеш-команди з Discord
         if ALLOWED_GUILD_ID:
             guild = discord.Object(id=ALLOWED_GUILD_ID)
             self.tree.copy_global_to(guild=guild)
@@ -121,7 +120,6 @@ class RainbowBot(commands.Bot):
         for row in rows:
             role_id, preset, hue = row[0], row[1], row[2]
             
-            # Шукаємо роль через кеш або напряму через API за допомогою fetch_role
             try:
                 role = guild.get_role(role_id)
                 if not role:
@@ -163,7 +161,6 @@ class RainbowBot(commands.Bot):
 
 bot = RainbowBot()
 
-# Доступні шаблони для випадаючого списку у Slash-командах
 PRESET_CHOICES = [
     app_commands.Choice(name="🌈 Rainbow (Класична веселка)", value="rainbow"),
     app_commands.Choice(name="🌸 Pastel (М'які пастельні)", value="pastel"),
@@ -179,7 +176,7 @@ PRESET_CHOICES = [
 
 @bot.tree.command(name="setcolor", description="Встановити райдужний перелив для ролі")
 @app_commands.choices(preset=PRESET_CHOICES)
-@app_commands.describe(role="Роль, якій потрібно змінити колір", preset="Обери стиль переливу зі списку")
+@app_commands.describe(role="Обери роль зі списку", preset="Обери стиль переливу зі списку")
 async def slash_set_color(interaction: discord.Interaction, role: discord.Role, preset: app_commands.Choice[str]):
     if OWNER_ID and interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ У тебе немає прав на використання цієї команди!", ephemeral=True)
@@ -188,13 +185,19 @@ async def slash_set_color(interaction: discord.Interaction, role: discord.Role, 
     if ALLOWED_GUILD_ID and interaction.guild_id != ALLOWED_GUILD_ID:
         return
 
-    preset_value = preset.value
+    # Залізобетонна перестраховка: якщо раптом Discord передав ID сервера замість ролі
+    target_role_id = role.id
+    if target_role_id == interaction.guild_id:
+        # Шукаємо реальну роль за такою ж назвою або беремо першу кастомну роль із сервера, щоб не записувати ID сервера
+        found_real_role = discord.utils.get(interaction.guild.roles, name=role.name)
+        if found_real_role and found_real_role.id != interaction.guild_id:
+            target_role_id = found_real_role.id
+            role = found_real_role
+        else:
+            await interaction.response.send_message("❌ Помилка: Не вдалося розпізнати роль. Спробуй обрати іншу роль.", ephemeral=True)
+            return
 
-    # Захист: якщо роль чомусь дорівнює серверу або передався ID сервера
-    role_id = role.id
-    if role_id == interaction.guild_id:
-        await interaction.response.send_message("❌ Помилка: Виберіть конкретну роль, а не сервер!", ephemeral=True)
-        return
+    preset_value = preset.value
 
     try:
         conn = get_db_connection()
@@ -203,7 +206,7 @@ async def slash_set_color(interaction: discord.Interaction, role: discord.Role, 
             INSERT INTO role_presets (role_id, preset, hue) 
             VALUES (?, ?, 0.0)
             ON CONFLICT(role_id) DO UPDATE SET preset = ?
-        """, (role_id, preset_value, preset_value))
+        """, (target_role_id, preset_value, preset_value))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -213,7 +216,7 @@ async def slash_set_color(interaction: discord.Interaction, role: discord.Role, 
     await interaction.response.send_message(f"✅ Успішно! Роль {role.mention} тепер переливається за шаблоном **{preset.name}**.")
 
 @bot.tree.command(name="removerole", description="Видалити роль із системи переливу кольорів")
-@app_commands.describe(role="Роль, яку потрібно прибрати з переливу")
+@app_commands.describe(role="Обери роль, яку потрібно прибрати")
 async def slash_remove_role(interaction: discord.Interaction, role: discord.Role):
     if OWNER_ID and interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ У тебе немає прав на використання цієї команди!", ephemeral=True)
@@ -222,10 +225,15 @@ async def slash_remove_role(interaction: discord.Interaction, role: discord.Role
     if ALLOWED_GUILD_ID and interaction.guild_id != ALLOWED_GUILD_ID:
         return
 
+    target_role_id = role.id
+    if target_role_id == interaction.guild_id:
+        await interaction.response.send_message("❌ Помилка: Обрана некоректна роль.", ephemeral=True)
+        return
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM role_presets WHERE role_id = ?", (role.id,))
+        cursor.execute("DELETE FROM role_presets WHERE role_id = ?", (target_role_id,))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -241,7 +249,7 @@ async def slash_presets(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="🎨 Інформаційна панель шаблонів кольорів",
-        description="Коли ти вводиш команду `/setcolor`, Discord сам покаже тобі зручний випадаючий список із цими варіантами:",
+        description="Коли ти вводиш команду `/setcolor`, вибирай потрібну роль через випадаючий список у Discord:",
         color=discord.Color.from_rgb(114, 137, 218)
     )
     embed.add_field(name="🌈 Rainbow", value="Класична яскрава повноспектральна веселка", inline=False)
@@ -253,7 +261,7 @@ async def slash_presets(interaction: discord.Interaction):
     embed.add_field(name="🔵 Blue", value="Глибокий синій, ультрамарин та фіолетовий", inline=False)
     embed.add_field(name="🟡 Yellow", value="Теплі жовті та насичені помаранчеві відтінки", inline=False)
     
-    embed.set_footer(text="Використовуй /setcolor @Роль, щоб призначити стиль!")
+    embed.set_footer(text="Використовуй /setcolor з вибором ролі та стилю!")
     
     await interaction.response.send_message(embed=embed)
 
