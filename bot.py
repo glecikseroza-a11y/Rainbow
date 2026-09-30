@@ -2,39 +2,41 @@ import os
 import discord
 from discord.ext import commands, tasks
 import colorsys
-import libsql_client
+import libsql
 
 # --- КОНФІГУРАЦІЯ ЗМІННИХ СЕРЕДОВИЩА ---
 TOKEN = os.getenv("DISCORD_TOKEN")
 TURSO_URL = os.getenv("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 
-# Додаткова варіація: інтервал зміни кольорів у секундах (за замовчуванням 20)
-# Можна змінити на Railway через змінну INTERVAL
 INTERVAL = int(os.getenv("INTERVAL", 20))
 
 intents = discord.Intents.default()
 intents.message_content = True
 
-# --- ІНІЦІАЛІЗАЦІЯ ХМАРНОЇ БАЗИ TURSO ---
-def get_db_client():
-    return libsql_client.create_client_sync(
-        url=TURSO_URL,
-        auth_token=TURSO_AUTH_TOKEN
-    )
+# --- ІНІЦІАЛІЗАЦІЯ ХМАРНОЇ БАЗИ ---
+def get_db_connection():
+    # Якщо посилання починається з libsql://, замінюємо на https:// для стабільного HTTP-з'єднання
+        url = TURSO_URL
+        if url.startswith("libsql://"):
+            url = url.replace("libsql://", "https://")
+        elif url.startswith("wss://"):
+            url = url.replace("wss://", "https://")
+
+        return libsql.connect(database=url, auth_token=TURSO_AUTH_TOKEN)
 
 def init_db():
-    client = get_db_client()
-    try:
-        client.execute("""
-            CREATE TABLE IF NOT EXISTS role_presets (
-                role_id INTEGER PRIMARY KEY,
-                preset TEXT DEFAULT 'rainbow',
-                hue REAL DEFAULT 0.0
-            )
-        """)
-    finally:
-        client.close()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS role_presets (
+            role_id INTEGER PRIMARY KEY,
+            preset TEXT DEFAULT 'rainbow',
+            hue REAL DEFAULT 0.0
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 init_db()
 
@@ -79,24 +81,23 @@ class RainbowBot(commands.Bot):
     async def on_ready(self):
         print(f'Бот залогінився як {self.user} (ID: {self.user.id})')
         print(f'Інтервал зміни кольорів: {INTERVAL} сек.')
-        print('Підключено до хмарної бази Turso. Все готово!')
+        print('Підключено до Turso через HTTPS. Все готово!')
 
     # --- ФОНОВА ЗАДАЧА ЗМІНИ КОЛЬОРІВ ---
     @tasks.loop(seconds=INTERVAL)
     async def color_loop(self):
-        client = get_db_client()
         try:
-            result = client.execute("SELECT role_id, preset, hue FROM role_presets")
-            rows = result.rows
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT role_id, preset, hue FROM role_presets")
+            rows = cursor.fetchall()
         except Exception as e:
             print(f"Помилка читання з бази Turso: {e}")
-            client.close()
             return
 
         for row in rows:
             role_id, preset, hue = row[0], row[1], row[2]
             
-            # Шукаємо роль серед серверів бота
             role = None
             guild = None
             for g in self.guilds:
@@ -119,17 +120,17 @@ class RainbowBot(commands.Bot):
             except (discord.Forbidden, discord.HTTPException):
                 continue
 
-            # Збільшуємо hue для плавного переливу
             new_hue = (hue + 0.02) % 1.0
             try:
-                client.execute(
+                cursor.execute(
                     "UPDATE role_presets SET hue = ? WHERE role_id = ?",
-                    [new_hue, role_id]
+                    (new_hue, role_id)
                 )
+                conn.commit()
             except Exception:
                 pass
 
-        client.close()
+        conn.close()
 
 bot = RainbowBot()
 
@@ -145,32 +146,34 @@ async def set_color_preset(ctx, role: discord.Role, preset: str):
         await ctx.send(f"❌ Невідомий шаблон! Доступні варіанти: `{', '.join(valid_presets)}`")
         return
 
-    client = get_db_client()
     try:
-        client.execute("""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
             INSERT INTO role_presets (role_id, preset, hue) 
             VALUES (?, ?, 0.0)
             ON CONFLICT(role_id) DO UPDATE SET preset = ?
-        """, [role.id, preset, preset])
+        """, (role.id, preset, preset))
+        conn.commit()
+        conn.close()
     except Exception as e:
         await ctx.send(f"❌ Помилка бази даних: {e}")
-        client.close()
         return
-    client.close()
 
     await ctx.send(f"✅ Успішно! Роль {role.mention} тепер переливається за шаблоном **{preset}**.")
 
 @bot.command(name="removerole")
 @commands.has_permissions(administrator=True)
 async def remove_role(ctx, role: discord.Role):
-    client = get_db_client()
     try:
-        client.execute("DELETE FROM role_presets WHERE role_id = ?", [role.id])
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM role_presets WHERE role_id = ?", (role.id,))
+        conn.commit()
+        conn.close()
     except Exception as e:
         await ctx.send(f"❌ Помилка: {e}")
-        client.close()
         return
-    client.close()
 
     await ctx.send(f"🗑️ Роль {role.mention} видалена з бази кольорів.")
 
