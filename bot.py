@@ -57,10 +57,6 @@ def init_db():
 
     try:
 
-        # ----------------------------------------------------
-        # Перевіряємо, чи існує таблиця
-        # ----------------------------------------------------
-
         cursor.execute("""
             SELECT name
             FROM sqlite_master
@@ -69,10 +65,6 @@ def init_db():
         """)
 
         table_exists = cursor.fetchone()
-
-        # ----------------------------------------------------
-        # Якщо таблиці немає
-        # ----------------------------------------------------
 
         if not table_exists:
 
@@ -92,10 +84,6 @@ def init_db():
             print("✅ Таблицю role_presets створено.")
 
             return
-
-        # ----------------------------------------------------
-        # Перевіряємо тип role_id
-        # ----------------------------------------------------
 
         cursor.execute("""
             PRAGMA table_info(role_presets)
@@ -120,19 +108,11 @@ def init_db():
             f"Тип role_id: {role_id_type}"
         )
 
-        # ----------------------------------------------------
-        # Якщо вже TEXT
-        # ----------------------------------------------------
-
         if role_id_type == "TEXT":
 
             print("✅ role_id вже має тип TEXT.")
 
             return
-
-        # ----------------------------------------------------
-        # Міграція INTEGER → TEXT
-        # ----------------------------------------------------
 
         print()
         print("⚠️ Виявлено старий тип role_id INTEGER.")
@@ -377,372 +357,475 @@ class RainbowBot(commands.Bot):
         print()
 
     # ========================================================
-    # COLOR LOOP
+    # BEFORE COLOR LOOP
     # ========================================================
 
-    @tasks.loop(seconds=INTERVAL)
-    async def color_loop(self):
+    @color_loop.before_loop
+    async def before_color_loop(self):
+
+        print(
+            "⏳ Rainbow loop очікує підключення Discord..."
+        )
 
         await self.wait_until_ready()
 
+        print(
+            f"✅ Rainbow loop готовий. "
+            f"Інтервал: {INTERVAL} секунд."
+        )
+
+    # ========================================================
+    # COLOR LOOP
+    # ========================================================
+
+    @tasks.loop(
+        seconds=INTERVAL,
+        reconnect=True
+    )
+    async def color_loop(self):
+
+        current_time = discord.utils.utcnow().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
         print()
-        print("🎨 --- ЗМІНА КОЛЬОРІВ ---")
-
-        # ----------------------------------------------------
-        # SERVER
-        # ----------------------------------------------------
-
-        guild = self.get_guild(
-            ALLOWED_GUILD_ID
-        )
-
-        if not guild:
-
-            print(
-                f"❌ Сервер НЕ знайдений.\n"
-                f"   GUILD_ID: {ALLOWED_GUILD_ID}"
-            )
-
-            return
-
+        print("=" * 65)
         print(
-            f"🏠 Сервер: {guild.name}"
+            f"🌈 [{current_time}] "
+            f"RAINBOW CYCLE STARTED"
         )
-
-        print(
-            f"🆔 Guild ID: {guild.id}"
-        )
-
-        # ----------------------------------------------------
-        # TURSO
-        # ----------------------------------------------------
+        print("=" * 65)
 
         conn = None
 
         try:
 
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            # ------------------------------------------------
+            # SERVER
+            # ------------------------------------------------
 
-            cursor.execute("""
-                SELECT role_id, preset, hue
-                FROM role_presets
-            """)
-
-            rows = cursor.fetchall()
-
-        except Exception as e:
-
-            print(
-                f"❌ Помилка читання Turso: {e}"
+            guild = self.get_guild(
+                ALLOWED_GUILD_ID
             )
 
-            if conn:
-
-                conn.close()
-
-            return
-
-        if not rows:
-
-            print(
-                "ℹ️ У базі немає ролей для переливу."
-            )
-
-            conn.close()
-
-            return
-
-        print(
-            f"📋 У базі знайдено ролей: {len(rows)}"
-        )
-
-        # ----------------------------------------------------
-        # ROLES
-        # ----------------------------------------------------
-
-        for row in rows:
-
-            role_id_text = str(row[0])
-
-            try:
-
-                role_id = int(
-                    role_id_text
-                )
-
-            except ValueError:
+            if not guild:
 
                 print(
-                    f"❌ Некоректний Role ID у БД: "
-                    f"{role_id_text}"
+                    f"❌ Сервер НЕ знайдений.\n"
+                    f"   GUILD_ID: {ALLOWED_GUILD_ID}"
                 )
 
-                continue
+                return
 
-            preset = str(row[1])
-            hue = float(row[2])
-
-            print()
             print(
-                f"🔎 Роль:\n"
-                f"   ID: {role_id_text}\n"
-                f"   Preset: {preset}\n"
-                f"   Hue: {round(hue, 3)}"
+                f"🏠 Сервер: {guild.name}"
+            )
+
+            print(
+                f"🆔 Guild ID: {guild.id}"
             )
 
             # ------------------------------------------------
-            # DISCORD API
+            # TURSO
             # ------------------------------------------------
 
             try:
 
-                role = await guild.fetch_role(
-                    role_id
-                )
+                conn = get_db_connection()
+                cursor = conn.cursor()
 
-            except discord.NotFound:
+                cursor.execute("""
+                    SELECT role_id, preset, hue
+                    FROM role_presets
+                """)
+
+                rows = cursor.fetchall()
+
+            except Exception as e:
 
                 print(
-                    f"❌ Discord API каже: "
-                    f"роль {role_id_text} НЕ ЗНАЙДЕНА."
+                    f"❌ Помилка читання Turso: {e}"
+                )
+
+                return
+
+            if not rows:
+
+                print(
+                    "ℹ️ У базі немає ролей для переливу."
+                )
+
+                return
+
+            print(
+                f"📋 У базі знайдено ролей: {len(rows)}"
+            )
+
+            # ------------------------------------------------
+            # ROLES
+            # ------------------------------------------------
+
+            for row in rows:
+
+                role_id_text = str(row[0])
+
+                try:
+
+                    role_id = int(
+                        role_id_text
+                    )
+
+                except ValueError:
+
+                    print(
+                        f"❌ Некоректний Role ID у БД: "
+                        f"{role_id_text}"
+                    )
+
+                    continue
+
+                preset = str(row[1])
+                hue = float(row[2])
+
+                print()
+                print(
+                    f"🔎 Роль:\n"
+                    f"   ID: {role_id_text}\n"
+                    f"   Preset: {preset}\n"
+                    f"   Hue: {round(hue, 3)}"
+                )
+
+                # ------------------------------------------------
+                # DISCORD API
+                # ------------------------------------------------
+
+                try:
+
+                    role = await guild.fetch_role(
+                        role_id
+                    )
+
+                except discord.NotFound:
+
+                    print(
+                        f"❌ Discord API каже: "
+                        f"роль {role_id_text} НЕ ЗНАЙДЕНА."
+                    )
+
+                    print(
+                        "🗑️ Видаляю старий ID з Turso..."
+                    )
+
+                    try:
+
+                        cursor.execute(
+                            """
+                            DELETE FROM role_presets
+                            WHERE role_id = ?
+                            """,
+                            (
+                                role_id_text,
+                            )
+                        )
+
+                        conn.commit()
+
+                        print(
+                            f"✅ Старий ID {role_id_text} "
+                            f"видалено з Turso."
+                        )
+
+                    except Exception as e:
+
+                        print(
+                            f"❌ Не вдалося видалити "
+                            f"старий ID: {e}"
+                        )
+
+                    continue
+
+                except discord.Forbidden:
+
+                    print(
+                        f"❌ Discord API: "
+                        f"бот не має доступу до ролі "
+                        f"{role_id_text}."
+                    )
+
+                    continue
+
+                except discord.HTTPException as e:
+
+                    print(
+                        f"❌ Discord API HTTP error "
+                        f"для ролі {role_id_text}: {e}"
+                    )
+
+                    continue
+
+                except Exception as e:
+
+                    print(
+                        f"❌ Невідома помилка "
+                        f"для ролі {role_id_text}: {e}"
+                    )
+
+                    continue
+
+                # ------------------------------------------------
+                # ROLE FOUND
+                # ------------------------------------------------
+
+                print(
+                    f"✅ РОЛЬ ЗНАЙДЕНА:\n"
+                    f"   Назва: {role.name}\n"
+                    f"   ID: {role.id}\n"
+                    f"   Position: {role.position}\n"
+                    f"   Managed: {role.managed}"
+                )
+
+                # ------------------------------------------------
+                # BOT MEMBER
+                # ------------------------------------------------
+
+                bot_member = guild.me
+
+                if not bot_member:
+
+                    try:
+
+                        bot_member = await guild.fetch_member(
+                            self.user.id
+                        )
+
+                    except Exception as e:
+
+                        print(
+                            f"❌ Не вдалося отримати "
+                            f"Member бота: {e}"
+                        )
+
+                        continue
+
+                # ------------------------------------------------
+                # MANAGED ROLE
+                # ------------------------------------------------
+
+                if role.managed:
+
+                    print(
+                        f"❌ Роль '{role.name}' "
+                        f"є Managed Role і не може "
+                        f"бути змінена ботом."
+                    )
+
+                    continue
+
+                # ------------------------------------------------
+                # HIERARCHY
+                # ------------------------------------------------
+
+                print(
+                    f"📊 Ієрархія:\n"
+                    f"   Роль бота: "
+                    f"'{bot_member.top_role.name}' "
+                    f"(position {bot_member.top_role.position})\n"
+                    f"   Цільова роль: "
+                    f"'{role.name}' "
+                    f"(position {role.position})"
+                )
+
+                if not bot_member.top_role > role:
+
+                    print(
+                        f"❌ Бот НЕ МОЖЕ керувати "
+                        f"роллю '{role.name}'.\n"
+                        f"   Роль бота повинна бути "
+                        f"вище за неї."
+                    )
+
+                    continue
+
+                # ------------------------------------------------
+                # COLOR
+                # ------------------------------------------------
+
+                color = get_preset_color(
+                    preset,
+                    hue
                 )
 
                 print(
-                    "🗑️ Видаляю старий ID з Turso..."
+                    f"🎨 Розрахований колір: {color}"
                 )
+
+                # ------------------------------------------------
+                # EDIT ROLE
+                # ------------------------------------------------
+
+                try:
+
+                    await role.edit(
+                        color=color,
+                        reason="Rainbow role color update"
+                    )
+
+                    print(
+                        f"✅ КОЛІР ЗМІНЕНО:\n"
+                        f"   Роль: {role.name}\n"
+                        f"   ID: {role.id}\n"
+                        f"   Color: {color}\n"
+                        f"   Preset: {preset}"
+                    )
+
+                except discord.Forbidden:
+
+                    print(
+                        "❌ FORBIDDEN:\n"
+                        "   Бот бачить роль, "
+                        "але Discord забороняє її змінювати."
+                    )
+
+                    continue
+
+                except discord.HTTPException as e:
+
+                    print(
+                        f"❌ HTTP помилка "
+                        f"при зміні '{role.name}': {e}"
+                    )
+
+                    continue
+
+                # ------------------------------------------------
+                # NEW HUE
+                # ------------------------------------------------
+
+                new_hue = (
+                    hue + 0.04
+                ) % 1.0
 
                 try:
 
                     cursor.execute(
                         """
-                        DELETE FROM role_presets
+                        UPDATE role_presets
+                        SET hue = ?
                         WHERE role_id = ?
                         """,
                         (
-                            role_id_text,
+                            new_hue,
+                            role_id_text
                         )
                     )
 
                     conn.commit()
 
                     print(
-                        f"✅ Старий ID {role_id_text} "
-                        f"видалено з Turso."
+                        f"🌈 Новий Hue: "
+                        f"{round(new_hue, 3)}"
                     )
 
                 except Exception as e:
 
                     print(
-                        f"❌ Не вдалося видалити "
-                        f"старий ID: {e}"
+                        f"❌ Не вдалося оновити hue "
+                        f"для {role_id_text}: {e}"
                     )
 
-                continue
-
-            except discord.Forbidden:
-
-                print(
-                    f"❌ Discord API: "
-                    f"бот не має доступу до ролі "
-                    f"{role_id_text}."
-                )
-
-                continue
-
-            except discord.HTTPException as e:
-
-                print(
-                    f"❌ Discord API HTTP error "
-                    f"для ролі {role_id_text}: {e}"
-                )
-
-                continue
-
-            except Exception as e:
-
-                print(
-                    f"❌ Невідома помилка "
-                    f"для ролі {role_id_text}: {e}"
-                )
-
-                continue
-
-            # ------------------------------------------------
-            # ROLE FOUND
-            # ------------------------------------------------
-
+            print()
             print(
-                f"✅ РОЛЬ ЗНАЙДЕНА:\n"
-                f"   Назва: {role.name}\n"
-                f"   ID: {role.id}\n"
-                f"   Position: {role.position}\n"
-                f"   Managed: {role.managed}"
+                f"⏳ Наступна зміна приблизно через "
+                f"{INTERVAL} секунд."
             )
 
+            print(
+                "🎨 --- ЗМІНУ ЗАВЕРШЕНО ---"
+            )
+
+        except Exception as e:
+
             # ------------------------------------------------
-            # BOT MEMBER
+            # ЗАХИСТ ВІД НЕОЧІКУВАНОЇ ПОМИЛКИ
             # ------------------------------------------------
 
-            bot_member = guild.me
+            print()
+            print("=" * 65)
+            print("🚨 НЕОЧІКУВАНА ПОМИЛКА RAINBOW LOOP")
+            print(
+                f"❌ Тип: {type(e).__name__}"
+            )
+            print(
+                f"❌ Помилка: {e}"
+            )
+            print("=" * 65)
+            print()
 
-            if not bot_member:
+        finally:
+
+            if conn:
 
                 try:
 
-                    bot_member = await guild.fetch_member(
-                        self.user.id
-                    )
+                    conn.close()
 
                 except Exception as e:
 
                     print(
-                        f"❌ Не вдалося отримати "
-                        f"Member бота: {e}"
+                        f"⚠️ Помилка закриття Turso: {e}"
                     )
 
-                    continue
 
-            # ------------------------------------------------
-            # MANAGED ROLE
-            # ------------------------------------------------
+    # ========================================================
+    # COLOR LOOP ERROR HANDLER
+    # ========================================================
 
-            if role.managed:
+    @color_loop.error
+    async def color_loop_error(
+        self,
+        error
+    ):
 
-                print(
-                    f"❌ Роль '{role.name}' "
-                    f"є Managed Role і не може "
-                    f"бути змінена ботом."
-                )
+        print()
+        print("=" * 65)
+        print("🚨 RAINBOW LOOP CRASH")
+        print(
+            f"❌ Тип: {type(error).__name__}"
+        )
+        print(
+            f"❌ Помилка: {error}"
+        )
+        print("=" * 65)
+        print()
 
-                continue
+        # ----------------------------------------------------
+        # АВТОМАТИЧНИЙ ПЕРЕЗАПУСК
+        # ----------------------------------------------------
 
-            # ------------------------------------------------
-            # HIERARCHY
-            # ------------------------------------------------
+        if not self.color_loop.is_running():
 
             print(
-                f"📊 Ієрархія:\n"
-                f"   Роль бота: "
-                f"'{bot_member.top_role.name}' "
-                f"(position {bot_member.top_role.position})\n"
-                f"   Цільова роль: "
-                f"'{role.name}' "
-                f"(position {role.position})"
+                "🔄 Rainbow loop зупинився."
             )
 
-            if not bot_member.top_role > role:
-
-                print(
-                    f"❌ Бот НЕ МОЖЕ керувати "
-                    f"роллю '{role.name}'.\n"
-                    f"   Роль бота повинна бути "
-                    f"вище за неї."
-                )
-
-                continue
-
-            # ------------------------------------------------
-            # COLOR
-            # ------------------------------------------------
-
-            color = get_preset_color(
-                preset,
-                hue
+            print(
+                "🔄 Перезапускаю Rainbow loop..."
             )
-
-            # ------------------------------------------------
-            # EDIT ROLE
-            # ------------------------------------------------
 
             try:
 
-                await role.edit(
-                    color=color,
-                    reason="Rainbow role color update"
-                )
+                self.color_loop.restart()
 
                 print(
-                    f"✅ КОЛІР ЗМІНЕНО:\n"
-                    f"   Роль: {role.name}\n"
-                    f"   ID: {role.id}\n"
-                    f"   Color: {color}\n"
-                    f"   Preset: {preset}"
-                )
-
-            except discord.Forbidden:
-
-                print(
-                    "❌ FORBIDDEN:\n"
-                    "   Бот бачить роль, "
-                    "але Discord забороняє її змінювати."
-                )
-
-                continue
-
-            except discord.HTTPException as e:
-
-                print(
-                    f"❌ HTTP помилка "
-                    f"при зміні '{role.name}': {e}"
-                )
-
-                continue
-
-            # ------------------------------------------------
-            # NEW HUE
-            # ------------------------------------------------
-
-            new_hue = (
-                hue + 0.02
-            ) % 1.0
-
-            try:
-
-                cursor.execute(
-                    """
-                    UPDATE role_presets
-                    SET hue = ?
-                    WHERE role_id = ?
-                    """,
-                    (
-                        new_hue,
-                        role_id_text
-                    )
-                )
-
-                conn.commit()
-
-                print(
-                    f"🌈 Новий Hue: "
-                    f"{round(new_hue, 3)}"
+                    "✅ Rainbow loop перезапущено."
                 )
 
             except Exception as e:
 
                 print(
-                    f"❌ Не вдалося оновити hue "
-                    f"для {role_id_text}: {e}"
+                    f"❌ Не вдалося перезапустити "
+                    f"Rainbow loop: {e}"
                 )
-
-        # ----------------------------------------------------
-        # CLOSE DB
-        # ----------------------------------------------------
-
-        if conn:
-
-            conn.close()
-
-        print(
-            f"⏳ Наступна зміна через "
-            f"{INTERVAL} секунд."
-        )
-
-        print(
-            "🎨 --- ЗМІНУ ЗАВЕРШЕНО ---"
-        )
-
-        print()
 
 
 # ============================================================
