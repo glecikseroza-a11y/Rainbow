@@ -5,6 +5,7 @@ from discord.ext import commands, tasks
 import colorsys
 import libsql
 
+
 # ============================================================
 # КОНФІГУРАЦІЯ БОТА
 # ============================================================
@@ -13,9 +14,14 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 TURSO_URL = os.getenv("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 
-INTERVAL = int(os.getenv("INTERVAL", 20))
+# Завжди 20 секунд
+INTERVAL = 20
+
 ALLOWED_GUILD_ID = int(os.getenv("GUILD_ID", 0))
 OWNER_ID = int(os.getenv("OWNER_ID", 0))
+
+# Наскільки змінюється колір за один цикл
+HUE_STEP = 0.04
 
 
 # ============================================================
@@ -30,6 +36,7 @@ intents = discord.Intents.all()
 # ============================================================
 
 def get_db_connection():
+
     url = TURSO_URL
 
     if url.startswith("libsql://"):
@@ -45,12 +52,6 @@ def get_db_connection():
 
 
 def init_db():
-    """
-    Створює таблицю role_presets.
-
-    Discord ID зберігаємо як TEXT, а не INTEGER,
-    щоб уникнути проблем з великими Discord Snowflake ID.
-    """
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -166,7 +167,10 @@ def init_db():
         conn.close()
 
 
-# Ініціалізація БД
+# ============================================================
+# ІНІЦІАЛІЗАЦІЯ БД
+# ============================================================
+
 init_db()
 
 
@@ -279,6 +283,7 @@ class RainbowBot(commands.Bot):
             intents=intents
         )
 
+
     # ========================================================
     # SETUP
     # ========================================================
@@ -287,32 +292,50 @@ class RainbowBot(commands.Bot):
 
         print("🔄 setup_hook запущено...")
 
-        if ALLOWED_GUILD_ID:
+        try:
 
-            guild = discord.Object(
-                id=ALLOWED_GUILD_ID
-            )
+            if ALLOWED_GUILD_ID:
 
-            self.tree.copy_global_to(
-                guild=guild
-            )
+                guild = discord.Object(
+                    id=ALLOWED_GUILD_ID
+                )
 
-            await self.tree.sync(
-                guild=guild
-            )
+                self.tree.copy_global_to(
+                    guild=guild
+                )
 
+                await self.tree.sync(
+                    guild=guild
+                )
+
+                print(
+                    f"✅ Slash-команди синхронізовано "
+                    f"з Guild ID: {ALLOWED_GUILD_ID}"
+                )
+
+            else:
+
+                await self.tree.sync()
+
+                print(
+                    "✅ Глобальні slash-команди синхронізовано"
+                )
+
+        except Exception as e:
+
+            print()
+            print("❌ ПОМИЛКА СИНХРОНІЗАЦІЇ SLASH-КОМАНД")
             print(
-                f"✅ Slash-команди синхронізовано "
-                f"з Guild ID: {ALLOWED_GUILD_ID}"
+                f"Тип: {type(e).__name__}"
             )
-
-        else:
-
-            await self.tree.sync()
-
             print(
-                "✅ Глобальні slash-команди синхронізовано"
+                f"Помилка: {e}"
             )
+            print()
+
+        # ----------------------------------------------------
+        # COLOR LOOP
+        # ----------------------------------------------------
 
         if not self.color_loop.is_running():
 
@@ -323,11 +346,11 @@ class RainbowBot(commands.Bot):
                 f"(кожні {INTERVAL} секунд)"
             )
 
+
     # ========================================================
     # READY
     # ========================================================
 
-    @commands.Cog.listener()
     async def on_ready(self):
 
         print()
@@ -353,26 +376,38 @@ class RainbowBot(commands.Bot):
             f"⏱ INTERVAL: {INTERVAL} сек."
         )
 
+        print(
+            f"🎨 HUE STEP: {HUE_STEP}"
+        )
+
+        print(
+            f"🔄 Color loop працює: "
+            f"{self.color_loop.is_running()}"
+        )
+
         print("=" * 65)
         print()
 
+
     # ========================================================
-    # BEFORE COLOR LOOP
+    # DISCORD RESUMED
     # ========================================================
 
-    @color_loop.before_loop
-    async def before_color_loop(self):
+    async def on_resumed(self):
 
+        print()
+        print("=" * 65)
+        print("🔄 DISCORD SESSION RESUMED")
         print(
-            "⏳ Rainbow loop очікує підключення Discord..."
+            "✅ З'єднання з Discord відновлено."
         )
-
-        await self.wait_until_ready()
-
         print(
-            f"✅ Rainbow loop готовий. "
-            f"Інтервал: {INTERVAL} секунд."
+            f"🎨 Color loop працює: "
+            f"{self.color_loop.is_running()}"
         )
+        print("=" * 65)
+        print()
+
 
     # ========================================================
     # COLOR LOOP
@@ -399,6 +434,12 @@ class RainbowBot(commands.Bot):
         conn = None
 
         try:
+
+            # ------------------------------------------------
+            # DISCORD READY
+            # ------------------------------------------------
+
+            await self.wait_until_ready()
 
             # ------------------------------------------------
             # SERVER
@@ -444,7 +485,8 @@ class RainbowBot(commands.Bot):
             except Exception as e:
 
                 print(
-                    f"❌ Помилка читання Turso: {e}"
+                    f"❌ Помилка читання Turso: "
+                    f"{type(e).__name__}: {e}"
                 )
 
                 return
@@ -452,13 +494,15 @@ class RainbowBot(commands.Bot):
             if not rows:
 
                 print(
-                    "ℹ️ У базі немає ролей для переливу."
+                    "ℹ️ У базі немає ролей "
+                    "для переливу кольорів."
                 )
 
                 return
 
             print(
-                f"📋 У базі знайдено ролей: {len(rows)}"
+                f"📋 У базі знайдено ролей: "
+                f"{len(rows)}"
             )
 
             # ------------------------------------------------
@@ -467,36 +511,50 @@ class RainbowBot(commands.Bot):
 
             for row in rows:
 
-                role_id_text = str(row[0])
-
                 try:
+
+                    role_id_text = str(row[0])
 
                     role_id = int(
                         role_id_text
                     )
 
-                except ValueError:
+                    preset = str(row[1])
+
+                    hue = float(row[2])
+
+                except Exception as e:
 
                     print(
-                        f"❌ Некоректний Role ID у БД: "
-                        f"{role_id_text}"
+                        f"❌ Некоректний запис у БД: "
+                        f"{row}"
+                    )
+
+                    print(
+                        f"❌ Помилка: {e}"
                     )
 
                     continue
 
-                preset = str(row[1])
-                hue = float(row[2])
-
                 print()
                 print(
-                    f"🔎 Роль:\n"
-                    f"   ID: {role_id_text}\n"
-                    f"   Preset: {preset}\n"
+                    f"🔎 Роль:"
+                )
+
+                print(
+                    f"   ID: {role_id_text}"
+                )
+
+                print(
+                    f"   Preset: {preset}"
+                )
+
+                print(
                     f"   Hue: {round(hue, 3)}"
                 )
 
                 # ------------------------------------------------
-                # DISCORD API
+                # FETCH ROLE
                 # ------------------------------------------------
 
                 try:
@@ -531,7 +589,8 @@ class RainbowBot(commands.Bot):
                         conn.commit()
 
                         print(
-                            f"✅ Старий ID {role_id_text} "
+                            f"✅ Старий ID "
+                            f"{role_id_text} "
                             f"видалено з Turso."
                         )
 
@@ -558,7 +617,8 @@ class RainbowBot(commands.Bot):
 
                     print(
                         f"❌ Discord API HTTP error "
-                        f"для ролі {role_id_text}: {e}"
+                        f"для ролі {role_id_text}: "
+                        f"{e}"
                     )
 
                     continue
@@ -567,7 +627,8 @@ class RainbowBot(commands.Bot):
 
                     print(
                         f"❌ Невідома помилка "
-                        f"для ролі {role_id_text}: {e}"
+                        f"для ролі {role_id_text}: "
+                        f"{type(e).__name__}: {e}"
                     )
 
                     continue
@@ -577,10 +638,22 @@ class RainbowBot(commands.Bot):
                 # ------------------------------------------------
 
                 print(
-                    f"✅ РОЛЬ ЗНАЙДЕНА:\n"
-                    f"   Назва: {role.name}\n"
-                    f"   ID: {role.id}\n"
-                    f"   Position: {role.position}\n"
+                    f"✅ РОЛЬ ЗНАЙДЕНА:"
+                )
+
+                print(
+                    f"   Назва: {role.name}"
+                )
+
+                print(
+                    f"   ID: {role.id}"
+                )
+
+                print(
+                    f"   Position: {role.position}"
+                )
+
+                print(
                     f"   Managed: {role.managed}"
                 )
 
@@ -626,22 +699,33 @@ class RainbowBot(commands.Bot):
                 # ------------------------------------------------
 
                 print(
-                    f"📊 Ієрархія:\n"
+                    f"📊 Ієрархія:"
+                )
+
+                print(
                     f"   Роль бота: "
                     f"'{bot_member.top_role.name}' "
-                    f"(position {bot_member.top_role.position})\n"
+                    f"(position "
+                    f"{bot_member.top_role.position})"
+                )
+
+                print(
                     f"   Цільова роль: "
                     f"'{role.name}' "
-                    f"(position {role.position})"
+                    f"(position "
+                    f"{role.position})"
                 )
 
                 if not bot_member.top_role > role:
 
                     print(
                         f"❌ Бот НЕ МОЖЕ керувати "
-                        f"роллю '{role.name}'.\n"
-                        f"   Роль бота повинна бути "
-                        f"вище за неї."
+                        f"роллю '{role.name}'."
+                    )
+
+                    print(
+                        "   Роль бота повинна бути "
+                        "вище за неї."
                     )
 
                     continue
@@ -656,7 +740,8 @@ class RainbowBot(commands.Bot):
                 )
 
                 print(
-                    f"🎨 Розрахований колір: {color}"
+                    f"🎨 Розрахований колір: "
+                    f"{color}"
                 )
 
                 # ------------------------------------------------
@@ -665,25 +750,53 @@ class RainbowBot(commands.Bot):
 
                 try:
 
-                    await role.edit(
-                        color=color,
-                        reason="Rainbow role color update"
-                    )
+                    # Не робимо зайвий API-запит,
+                    # якщо колір уже такий самий.
 
-                    print(
-                        f"✅ КОЛІР ЗМІНЕНО:\n"
-                        f"   Роль: {role.name}\n"
-                        f"   ID: {role.id}\n"
-                        f"   Color: {color}\n"
-                        f"   Preset: {preset}"
-                    )
+                    if role.color.value != color.value:
+
+                        await role.edit(
+                            color=color,
+                            reason="Rainbow role color update"
+                        )
+
+                        print(
+                            f"✅ КОЛІР ЗМІНЕНО:"
+                        )
+
+                        print(
+                            f"   Роль: {role.name}"
+                        )
+
+                        print(
+                            f"   ID: {role.id}"
+                        )
+
+                        print(
+                            f"   Color: {color}"
+                        )
+
+                        print(
+                            f"   Preset: {preset}"
+                        )
+
+                    else:
+
+                        print(
+                            "ℹ️ Колір уже такий самий — "
+                            "API-запит не потрібен."
+                        )
 
                 except discord.Forbidden:
 
                     print(
-                        "❌ FORBIDDEN:\n"
+                        "❌ FORBIDDEN:"
+                    )
+
+                    print(
                         "   Бот бачить роль, "
-                        "але Discord забороняє її змінювати."
+                        "але Discord забороняє "
+                        "її змінювати."
                     )
 
                     continue
@@ -692,7 +805,8 @@ class RainbowBot(commands.Bot):
 
                     print(
                         f"❌ HTTP помилка "
-                        f"при зміні '{role.name}': {e}"
+                        f"при зміні '{role.name}': "
+                        f"{e}"
                     )
 
                     continue
@@ -702,7 +816,7 @@ class RainbowBot(commands.Bot):
                 # ------------------------------------------------
 
                 new_hue = (
-                    hue + 0.04
+                    hue + HUE_STEP
                 ) % 1.0
 
                 try:
@@ -729,13 +843,15 @@ class RainbowBot(commands.Bot):
                 except Exception as e:
 
                     print(
-                        f"❌ Не вдалося оновити hue "
-                        f"для {role_id_text}: {e}"
+                        f"❌ Не вдалося оновити "
+                        f"hue для {role_id_text}: "
+                        f"{type(e).__name__}: {e}"
                     )
 
             print()
             print(
-                f"⏳ Наступна зміна приблизно через "
+                f"⏳ Наступна зміна "
+                f"приблизно через "
                 f"{INTERVAL} секунд."
             )
 
@@ -746,18 +862,32 @@ class RainbowBot(commands.Bot):
         except Exception as e:
 
             # ------------------------------------------------
-            # ЗАХИСТ ВІД НЕОЧІКУВАНОЇ ПОМИЛКИ
+            # ГОЛОВНИЙ ЗАХИСТ
             # ------------------------------------------------
 
             print()
             print("=" * 65)
-            print("🚨 НЕОЧІКУВАНА ПОМИЛКА RAINBOW LOOP")
+            print(
+                "🚨 НЕОЧІКУВАНА ПОМИЛКА RAINBOW LOOP"
+            )
+
             print(
                 f"❌ Тип: {type(e).__name__}"
             )
+
             print(
                 f"❌ Помилка: {e}"
             )
+
+            print(
+                "⚠️ Loop НЕ буде зупинений."
+            )
+
+            print(
+                "🔄 Наступна ітерація відбудеться "
+                f"через {INTERVAL} секунд."
+            )
+
             print("=" * 65)
             print()
 
@@ -772,7 +902,8 @@ class RainbowBot(commands.Bot):
                 except Exception as e:
 
                     print(
-                        f"⚠️ Помилка закриття Turso: {e}"
+                        f"⚠️ Помилка закриття Turso: "
+                        f"{e}"
                     )
 
 
@@ -788,28 +919,27 @@ class RainbowBot(commands.Bot):
 
         print()
         print("=" * 65)
-        print("🚨 RAINBOW LOOP CRASH")
+        print("🚨 RAINBOW LOOP ERROR")
+
         print(
             f"❌ Тип: {type(error).__name__}"
         )
+
         print(
             f"❌ Помилка: {error}"
         )
+
         print("=" * 65)
         print()
 
-        # ----------------------------------------------------
-        # АВТОМАТИЧНИЙ ПЕРЕЗАПУСК
-        # ----------------------------------------------------
+        # Цей handler потрібен як додатковий захист.
+        # Основний код color_loop уже має try/except,
+        # тому звичайні помилки не повинні сюди доходити.
 
         if not self.color_loop.is_running():
 
             print(
                 "🔄 Rainbow loop зупинився."
-            )
-
-            print(
-                "🔄 Перезапускаю Rainbow loop..."
             )
 
             try:
@@ -824,7 +954,8 @@ class RainbowBot(commands.Bot):
 
                 print(
                     f"❌ Не вдалося перезапустити "
-                    f"Rainbow loop: {e}"
+                    f"Rainbow loop: "
+                    f"{type(e).__name__}: {e}"
                 )
 
 
@@ -908,23 +1039,47 @@ async def slash_set_color(
     print("📝 --- /setcolor ---")
 
     print(
-        f"👤 User:\n"
-        f"   Name: {interaction.user}\n"
+        f"👤 User:"
+    )
+
+    print(
+        f"   Name: {interaction.user}"
+    )
+
+    print(
         f"   ID: {interaction.user.id}"
     )
 
     print(
-        f"🏠 Guild:\n"
+        f"🏠 Guild:"
+    )
+
+    print(
         f"   Name: "
-        f"{interaction.guild.name if interaction.guild else 'None'}\n"
+        f"{interaction.guild.name if interaction.guild else 'None'}"
+    )
+
+    print(
         f"   ID: {interaction.guild_id}"
     )
 
     print(
-        f"🎭 Role:\n"
-        f"   Name: {role.name}\n"
-        f"   ID: {role.id}\n"
-        f"   Type: {type(role.id)}\n"
+        f"🎭 Role:"
+    )
+
+    print(
+        f"   Name: {role.name}"
+    )
+
+    print(
+        f"   ID: {role.id}"
+    )
+
+    print(
+        f"   Type: {type(role.id)}"
+    )
+
+    print(
         f"   String: {str(role.id)}"
     )
 
@@ -1160,10 +1315,6 @@ async def slash_set_color(
             f"❌ Turso error: {e}"
         )
 
-        if conn:
-
-            conn.close()
-
         await interaction.response.send_message(
             f"❌ Помилка бази даних:\n```{e}```",
             ephemeral=True
@@ -1175,7 +1326,10 @@ async def slash_set_color(
 
         if conn:
 
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     # --------------------------------------------------------
     # RESPONSE
@@ -1209,10 +1363,6 @@ async def slash_remove_role(
     role: discord.Role
 ):
 
-    # --------------------------------------------------------
-    # OWNER
-    # --------------------------------------------------------
-
     if OWNER_ID and interaction.user.id != OWNER_ID:
 
         await interaction.response.send_message(
@@ -1221,10 +1371,6 @@ async def slash_remove_role(
         )
 
         return
-
-    # --------------------------------------------------------
-    # SERVER
-    # --------------------------------------------------------
 
     if (
         ALLOWED_GUILD_ID
@@ -1237,10 +1383,6 @@ async def slash_remove_role(
         )
 
         return
-
-    # --------------------------------------------------------
-    # DELETE
-    # --------------------------------------------------------
 
     role_id_text = str(role.id)
 
@@ -1267,10 +1409,6 @@ async def slash_remove_role(
 
     except Exception as e:
 
-        if conn:
-
-            conn.close()
-
         await interaction.response.send_message(
             f"❌ Помилка:\n```{e}```",
             ephemeral=True
@@ -1282,11 +1420,10 @@ async def slash_remove_role(
 
         if conn:
 
-            conn.close()
-
-    # --------------------------------------------------------
-    # RESPONSE
-    # --------------------------------------------------------
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     if deleted:
 
@@ -1461,6 +1598,16 @@ if __name__ == "__main__":
 
     print(
         "🚀 Запуск Rainbow Bot..."
+    )
+
+    print(
+        f"⏱ Інтервал зміни кольору: "
+        f"{INTERVAL} секунд"
+    )
+
+    print(
+        f"🌈 Крок Hue: "
+        f"{HUE_STEP}"
     )
 
     bot.run(TOKEN)
